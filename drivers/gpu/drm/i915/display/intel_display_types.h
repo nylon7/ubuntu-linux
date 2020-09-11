@@ -247,6 +247,9 @@ struct intel_panel {
 		bool alternate_pwm_increment;	/* lpt+ */
 
 		/* PWM chip */
+		u32 pwm_level_min;
+		u32 pwm_level_max;
+		bool pwm_enabled;
 		bool util_pin_active_low;	/* bxt+ */
 		u8 controller;		/* bxt+ only */
 		struct pwm_device *pwm;
@@ -265,6 +268,8 @@ struct intel_panel {
 		void (*enable)(const struct intel_crtc_state *crtc_state,
 			       const struct drm_connector_state *conn_state);
 		u32 (*hz_to_pwm)(struct intel_connector *connector, u32 hz);
+		const struct intel_panel_bl_funcs *funcs;
+		const struct intel_panel_bl_funcs *pwm_funcs;
 		void (*power)(struct intel_connector *, bool enable);
 	} backlight;
 };
