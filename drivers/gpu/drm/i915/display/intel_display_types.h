@@ -269,11 +269,11 @@ struct intel_panel {
 
 		/* Connector and platform specific backlight functions */
 		int (*setup)(struct intel_connector *connector, enum pipe pipe);
-		u32 (*get)(struct intel_connector *connector);
+		u32 (*get)(struct intel_connector *connector, enum pipe pipe);
 		void (*set)(const struct drm_connector_state *conn_state, u32 level);
-		void (*disable)(const struct drm_connector_state *conn_state);
+		void (*disable)(const struct drm_connector_state *conn_state, u32 level);
 		void (*enable)(const struct intel_crtc_state *crtc_state,
-			       const struct drm_connector_state *conn_state);
+			       const struct drm_connector_state *conn_state, u32 level);
 		u32 (*hz_to_pwm)(struct intel_connector *connector, u32 hz);
 		const struct intel_panel_bl_funcs *funcs;
 		const struct intel_panel_bl_funcs *pwm_funcs;
@@ -1336,7 +1336,6 @@ struct intel_dp {
 	int max_link_rate;
 	/* sink or branch descriptor */
 	struct drm_dp_desc desc;
-	u32 edid_quirks;
 	struct drm_dp_aux aux;
 	u32 aux_busy_last_status;
 	u8 train_set[4];

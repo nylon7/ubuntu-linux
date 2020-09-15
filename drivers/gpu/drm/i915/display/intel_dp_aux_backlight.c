@@ -295,7 +295,7 @@ static void set_vesa_backlight_enable(struct intel_dp *intel_dp, bool enable)
 	}
 }
 
-static bool intel_dp_aux_backlight_dpcd_mode(struct intel_connector *connector)
+static bool intel_dp_aux_vesa_backlight_dpcd_mode(struct intel_connector *connector)
 {
 	struct intel_dp *intel_dp = intel_attached_dp(connector);
 	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
@@ -329,7 +329,7 @@ static u32 intel_dp_aux_vesa_get_backlight(struct intel_connector *connector, en
 	 * If we're not in DPCD control mode yet, the programmed brightness
 	 * value is meaningless and we should assume max brightness
 	 */
-	if (!intel_dp_aux_backlight_dpcd_mode(connector))
+	if (!intel_dp_aux_vesa_backlight_dpcd_mode(connector))
 		return connector->panel.backlight.max;
 
 	if (drm_dp_dpcd_read(&intel_dp->aux, DP_EDP_BACKLIGHT_BRIGHTNESS_MSB,
@@ -350,7 +350,7 @@ static u32 intel_dp_aux_vesa_get_backlight(struct intel_connector *connector, en
  * 8-bit or 16 bit value (MSB and LSB)
  */
 static void
-intel_dp_aux_set_backlight(const struct drm_connector_state *conn_state, u32 level)
+intel_dp_aux_vesa_set_backlight(const struct drm_connector_state *conn_state, u32 level)
 {
 	struct intel_connector *connector = to_intel_connector(conn_state->connector);
 	struct intel_dp *intel_dp = intel_attached_dp(connector);
@@ -416,7 +416,7 @@ static bool intel_dp_aux_set_pwm_freq(struct intel_connector *connector)
 	return true;
 }
 
-static void intel_dp_aux_enable_backlight(const struct intel_crtc_state *crtc_state,
+static void intel_dp_aux_vesa_enable_backlight(const struct intel_crtc_state *crtc_state,
 					  const struct drm_connector_state *conn_state, u32 level)
 {
 	struct intel_connector *connector = to_intel_connector(conn_state->connector);
@@ -469,14 +469,14 @@ static void intel_dp_aux_enable_backlight(const struct intel_crtc_state *crtc_st
 		}
 	}
 
-	intel_dp_aux_set_backlight(conn_state, level);
-	set_aux_backlight_enable(intel_dp, true);
+	intel_dp_aux_vesa_set_backlight(conn_state, level);
+	set_vesa_backlight_enable(intel_dp, true);
 }
 
-static void intel_dp_aux_disable_backlight(const struct drm_connector_state *old_conn_state,
+static void intel_dp_aux_vesa_disable_backlight(const struct drm_connector_state *old_conn_state,
 					   u32 level)
 {
-	set_aux_backlight_enable(enc_to_intel_dp(to_intel_encoder(old_conn_state->best_encoder)),
+	set_vesa_backlight_enable(enc_to_intel_dp(to_intel_encoder(old_conn_state->best_encoder)),
 				 false);
 }
 
@@ -560,7 +560,7 @@ static u32 intel_dp_aux_calc_max_backlight(struct intel_connector *connector)
 	return max_backlight;
 }
 
-static int intel_dp_aux_setup_backlight(struct intel_connector *connector,
+static int intel_dp_aux_vesa_setup_backlight(struct intel_connector *connector,
 					enum pipe pipe)
 {
 	struct intel_panel *panel = &connector->panel;
@@ -594,6 +594,29 @@ intel_dp_aux_display_control_capable(struct intel_connector *connector)
 	}
 	return false;
 }
+
+static bool
+intel_dp_aux_supports_vesa_backlight(struct intel_connector *connector)
+{
+	struct intel_dp *intel_dp = intel_attached_dp(connector);
+	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
+
+	/* Check the eDP Display control capabilities registers to determine if
+	 * the panel can support backlight control over the aux channel.
+	 *
+	 * TODO: We currently only support AUX only backlight configurations, not backlights which
+	 * require a mix of PWM and AUX controls to work. In the mean time, these machines typically
+	 * work just fine using normal PWM controls anyway.
+	 */
+	if (intel_dp->edp_dpcd[1] & DP_EDP_TCON_BACKLIGHT_ADJUSTMENT_CAP &&
+	    (intel_dp->edp_dpcd[1] & DP_EDP_BACKLIGHT_AUX_ENABLE_CAP) &&
+	    (intel_dp->edp_dpcd[2] & DP_EDP_BACKLIGHT_BRIGHTNESS_AUX_SET_CAP)) {
+		drm_dbg_kms(&i915->drm, "AUX Backlight Control Supported!\n");
+		return true;
+	}
+	return false;
+}
+
 
 static const struct intel_panel_bl_funcs intel_dp_hdr_bl_funcs = {
 	.setup = intel_dp_aux_hdr_setup_backlight,

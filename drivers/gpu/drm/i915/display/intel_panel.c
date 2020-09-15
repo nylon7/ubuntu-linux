@@ -622,6 +622,14 @@ static u32 bxt_get_backlight(struct intel_connector *connector, enum pipe unused
 			     BXT_BLC_PWM_DUTY(panel->backlight.controller));
 }
 
+static void ext_pwm_set_backlight(const struct drm_connector_state *conn_state, u32 level)
+{
+	struct intel_panel *panel = &to_intel_connector(conn_state->connector)->panel;
+
+	pwm_set_relative_duty_cycle(&panel->backlight.pwm_state, level, 100);
+	pwm_apply_state(panel->backlight.pwm, &panel->backlight.pwm_state);
+}
+
 static u32 ext_pwm_get_backlight(struct intel_connector *connector, enum pipe unused)
 {
 	struct intel_panel *panel = &connector->panel;
@@ -630,6 +638,7 @@ static u32 ext_pwm_get_backlight(struct intel_connector *connector, enum pipe un
 	pwm_get_state(panel->backlight.pwm, &state);
 	return pwm_get_relative_duty_cycle(&state, 100);
 }
+
 
 static void lpt_set_backlight(const struct drm_connector_state *conn_state, u32 level)
 {
@@ -697,14 +706,6 @@ static void bxt_set_backlight(const struct drm_connector_state *conn_state, u32 
 
 	intel_de_write(dev_priv,
 		       BXT_BLC_PWM_DUTY(panel->backlight.controller), level);
-}
-
-static void pwm_set_backlight(const struct drm_connector_state *conn_state, u32 level)
-{
-	struct intel_panel *panel = &to_intel_connector(conn_state->connector)->panel;
-
-	pwm_set_relative_duty_cycle(&panel->backlight.pwm_state, level, 100);
-	pwm_apply_state(panel->backlight.pwm, &panel->backlight.pwm_state);
 }
 
 static void
@@ -1885,57 +1886,6 @@ cnp_setup_backlight(struct intel_connector *connector, enum pipe unused)
 	return 0;
 }
 
-static int pwm_setup_backlight(struct intel_connector *connector,
-			       enum pipe pipe)
-{
-	struct drm_device *dev = connector->base.dev;
-	struct drm_i915_private *dev_priv = to_i915(dev);
-	struct intel_panel *panel = &connector->panel;
-	const char *desc;
-	u32 level;
-
-	/* Get the right PWM chip for DSI backlight according to VBT */
-	if (dev_priv->vbt.dsi.config->pwm_blc == PPS_BLC_PMIC) {
-		panel->backlight.pwm = pwm_get(dev->dev, "pwm_pmic_backlight");
-		desc = "PMIC";
-	} else {
-		panel->backlight.pwm = pwm_get(dev->dev, "pwm_soc_backlight");
-		desc = "SoC";
-	}
-
-	if (IS_ERR(panel->backlight.pwm)) {
-		drm_err(&dev_priv->drm, "Failed to get the %s PWM chip\n",
-			desc);
-		panel->backlight.pwm = NULL;
-		return -ENODEV;
-	}
-
-	panel->backlight.pwm_level_max = 100; /* 100% */
-	panel->backlight.pwm_level_min = get_backlight_min_vbt(connector);
-
-	if (pwm_is_enabled(panel->backlight.pwm)) {
-		/* PWM is already enabled, use existing settings */
-		pwm_get_state(panel->backlight.pwm, &panel->backlight.pwm_state);
-
-		level = pwm_get_relative_duty_cycle(&panel->backlight.pwm_state,
-						    100);
-		level = intel_panel_invert_pwm_level(connector, level);
-		panel->backlight.pwm_enabled = true;
-
-		drm_dbg_kms(&dev_priv->drm, "PWM already enabled at freq %ld, VBT freq %d, level %d\n",
-			    NSEC_PER_SEC / (unsigned long)panel->backlight.pwm_state.period,
-			    get_vbt_pwm_freq(dev_priv), level);
-	} else {
-		/* Set period from VBT frequency, leave other settings at 0. */
-		panel->backlight.pwm_state.period =
-			NSEC_PER_SEC / get_vbt_pwm_freq(dev_priv);
-	}
-
-	drm_info(&dev_priv->drm, "Using %s PWM for LCD backlight control\n",
-		 desc);
-	return 0;
-}
-
 static void intel_pwm_set_backlight(const struct drm_connector_state *conn_state, u32 level)
 {
 	struct intel_connector *connector = to_intel_connector(conn_state->connector);
@@ -2059,6 +2009,57 @@ static void intel_panel_destroy_backlight(struct intel_panel *panel)
 		pwm_put(panel->backlight.pwm);
 
 	panel->backlight.present = false;
+}
+
+static int ext_pwm_setup_backlight(struct intel_connector *connector,
+				   enum pipe pipe)
+{
+	struct drm_device *dev = connector->base.dev;
+	struct drm_i915_private *dev_priv = to_i915(dev);
+	struct intel_panel *panel = &connector->panel;
+	const char *desc;
+	u32 level;
+
+	/* Get the right PWM chip for DSI backlight according to VBT */
+	if (dev_priv->vbt.dsi.config->pwm_blc == PPS_BLC_PMIC) {
+		panel->backlight.pwm = pwm_get(dev->dev, "pwm_pmic_backlight");
+		desc = "PMIC";
+	} else {
+		panel->backlight.pwm = pwm_get(dev->dev, "pwm_soc_backlight");
+		desc = "SoC";
+	}
+
+	if (IS_ERR(panel->backlight.pwm)) {
+		drm_err(&dev_priv->drm, "Failed to get the %s PWM chip\n",
+			desc);
+		panel->backlight.pwm = NULL;
+		return -ENODEV;
+	}
+
+	panel->backlight.pwm_level_max = 100; /* 100% */
+	panel->backlight.pwm_level_min = get_backlight_min_vbt(connector);
+
+	if (pwm_is_enabled(panel->backlight.pwm)) {
+		/* PWM is already enabled, use existing settings */
+		pwm_get_state(panel->backlight.pwm, &panel->backlight.pwm_state);
+
+		level = pwm_get_relative_duty_cycle(&panel->backlight.pwm_state,
+						    100);
+		level = intel_panel_invert_pwm_level(connector, level);
+		panel->backlight.pwm_enabled = true;
+
+		drm_dbg_kms(&dev_priv->drm, "PWM already enabled at freq %ld, VBT freq %d, level %d\n",
+			    NSEC_PER_SEC / (unsigned long)panel->backlight.pwm_state.period,
+			    get_vbt_pwm_freq(dev_priv), level);
+	} else {
+		/* Set period from VBT frequency, leave other settings at 0. */
+		panel->backlight.pwm_state.period =
+			NSEC_PER_SEC / get_vbt_pwm_freq(dev_priv);
+	}
+
+	drm_info(&dev_priv->drm, "Using %s PWM for LCD backlight control\n",
+		 desc);
+	return 0;
 }
 
 static const struct intel_panel_bl_funcs bxt_pwm_funcs = {
